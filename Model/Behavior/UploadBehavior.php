@@ -22,12 +22,16 @@ class UploadBehavior extends ModelBehavior {
 
     private $maxWidthSize = false;
 
-    public function setup(&$model, $settings = array()) {
+    public function setup(Model $model, $settings = array()) {
         $defaults = array(
             'path' => ':webroot/upload/:model/:id/:basename_:style.:extension',
             'styles' => array(),
             'resizeToMaxWidth' => false,
-            'quality' => 75
+            'quality' => 75,
+            'PDFtoImage' => false,
+            'dpi' => 72,
+            'CMYKicc' => 'JapanColor2001Coated.icc',
+            'RGBicc' => 'sRGB.icc'
         );
 
         foreach ($settings as $field => $array) {
@@ -35,7 +39,7 @@ class UploadBehavior extends ModelBehavior {
         }
     }
 
-    public function beforeSave(&$model) {
+    public function beforeSave(Model $model) {
         $this->_reset();
         foreach (self::$__settings[$model->name] as $field => $settings) {
             if (!empty($model->data[$model->name][$field]) && is_array($model->data[$model->name][$field]) && file_exists($model->data[$model->name][$field]['tmp_name'])) {
@@ -60,24 +64,24 @@ class UploadBehavior extends ModelBehavior {
         return true;
     }
 
-    public function afterSave(&$model, $create) {
+    public function afterSave(Model $model, $create) {
         if (!$create) {
             $this->_deleteFiles($model);
         }
         $this->_writeFiles($model);
     }
 
-    public function beforeDelete(&$model) {
+    public function beforeDelete(Model $model, $cascade = true) {
         $this->_reset();
         $this->_prepareToDeleteFiles($model);
         return true;
     }
 
-    public function afterDelete(&$model) {
+    public function afterDelete(Model $model) {
         $this->_deleteFiles($model);
     }
 
-    public function beforeValidate(&$model) {
+    public function beforeValidate(Model $model) {
         foreach (self::$__settings[$model->name] as $field => $settings) {
             if (isset($model->data[$model->name][$field])) {
                 $data = $model->data[$model->name][$field];
@@ -114,7 +118,7 @@ class UploadBehavior extends ModelBehavior {
         return $data;
     }
 
-    private function _prepareToWriteFiles(&$model, $field) {
+    private function _prepareToWriteFiles(Model $model, $field) {
         $this->toWrite[$field] = $model->data[$model->name][$field];
         // make filename URL friendly by using Cake's Inflector
         $this->toWrite[$field]['name'] =
@@ -122,7 +126,7 @@ class UploadBehavior extends ModelBehavior {
             substr($this->toWrite[$field]['name'], strrpos($this->toWrite[$field]['name'], '.')); // extension
     }
 
-    private function _writeFiles(&$model) {
+    private function _writeFiles(Model $model) {
         if (!empty($this->toWrite)) {
             foreach ($this->toWrite as $field => $toWrite) {
                 $settings = $this->_interpolate($model, $field, $toWrite['name'], 'original');
@@ -134,6 +138,8 @@ class UploadBehavior extends ModelBehavior {
                 if (is_dir($destDir) && is_writable($destDir)) {
                     $move = !empty($toWrite['remote']) ? 'rename' : 'move_uploaded_file';
                     if (@$move($toWrite['tmp_name'], $settings['path'])) {
+                        self::_convertPDFtoImageIfPDF($settings, $toWrite);
+
                         if($this->maxWidthSize) {
                             $this->_resize($settings['path'], $settings['path'], $this->maxWidthSize.'w', $settings['quality']);
                         }
@@ -147,7 +153,7 @@ class UploadBehavior extends ModelBehavior {
         }
     }
 
-    private function _prepareToDeleteFiles(&$model, $field = null, $forceRead = false) {
+    private function _prepareToDeleteFiles(Model $model, $field = null, $forceRead = false) {
         $needToRead = true;
         if ($field === null) {
             $fields = array_keys(self::$__settings[$model->name]);
@@ -181,7 +187,7 @@ class UploadBehavior extends ModelBehavior {
         $this->toDelete['id'] = $model->id;
     }
 
-    private function _deleteFiles(&$model) {
+    private function _deleteFiles(Model $model) {
         foreach (self::$__settings[$model->name] as $field => $settings) {
             if (!empty($this->toDelete[$field.'_file_name'])) {
                 $styles = array_keys($settings['styles']);
@@ -196,7 +202,7 @@ class UploadBehavior extends ModelBehavior {
         }
     }
 
-    private function _interpolate(&$model, $field, $filename, $style) {
+    private function _interpolate(Model $model, $field, $filename, $style) {
         return self::interpolate($model->name, $model->id, $field, $filename, $style);
     }
 
@@ -325,7 +331,7 @@ class UploadBehavior extends ModelBehavior {
         return false;
     }
 
-    public function attachmentMinSize(&$model, $value, $min) {
+    public function attachmentMinSize(Model $model, $value, $min) {
         $value = array_shift($value);
         if (!empty($value['tmp_name'])) {
             return (int)$min <= (int)$value['size'];
@@ -333,7 +339,7 @@ class UploadBehavior extends ModelBehavior {
         return true;
     }
 
-    public function attachmentMaxSize(&$model, $value, $max) {
+    public function attachmentMaxSize(Model $model, $value, $max) {
         $value = array_shift($value);
         if (!empty($value['tmp_name'])) {
             return (int)$value['size'] <= (int)$max;
@@ -341,7 +347,7 @@ class UploadBehavior extends ModelBehavior {
         return true;
     }
 
-    public function attachmentContentType(&$model, $value, $contentTypes) {
+    public function attachmentContentType(Model $model, $value, $contentTypes) {
         $value = array_shift($value);
         if (!is_array($contentTypes)) {
             $contentTypes = array($contentTypes);
@@ -361,7 +367,7 @@ class UploadBehavior extends ModelBehavior {
         return true;
     }
 
-    public function attachmentPresence(&$model, $value) {
+    public function attachmentPresence(Model $model, $value) {
         $keys = array_keys($value);
         $field = $keys[0];
         $value = array_shift($value);
@@ -382,15 +388,15 @@ class UploadBehavior extends ModelBehavior {
         }
         return false;
     }
-    public function minWidth(&$model, $value, $minWidth) {
+    public function minWidth(Model $model, $value, $minWidth) {
         return $this->_validateDimension($value, 'min', 'x', $minWidth);
     }
 
-    public function minHeight(&$model, $value, $minHeight) {
+    public function minHeight(Model $model, $value, $minHeight) {
         return $this->_validateDimension($value, 'min', 'y', $minHeight);
     }
 
-    public function maxWidth(&$model, $value, $maxWidth) {
+    public function maxWidth(Model $model, $value, $maxWidth) {
         $keys = array_keys($value);
         $field = $keys[0];
         $settings = self::$__settings[$model->name][$field];
@@ -402,7 +408,7 @@ class UploadBehavior extends ModelBehavior {
         }
     }
 
-    public function maxHeight(&$model, $value, $maxHeight) {
+    public function maxHeight(Model $model, $value, $maxHeight) {
         return $this->_validateDimension($value, 'max', 'y', $maxHeight);
     }
 
@@ -433,5 +439,97 @@ class UploadBehavior extends ModelBehavior {
             }
         }
         return false;
+    }
+
+    private function _convertPDFtoImageIfPDF( &$settings, &$toWrite ) {
+        $srcFile = $settings['path'];
+        $pdfToImage = $settings['PDFtoImage'];
+        $dpi = $settings['dpi'];
+        $quality = $settings['quality'];
+        $CMYKicc = $settings['CMYKicc'];
+        $RGBicc = $settings['RGBicc'];
+
+        // pdfToImage: (jpg|png)
+        // destFile ex: example_thumb.pdf -> example_thum.jpg
+        $destFile = preg_replace('/\.pdf$/', ".$pdfToImage", $srcFile);
+        $destFilename = preg_replace('/\.pdf$/', ".$pdfToImage", $toWrite['name']);
+
+        $pathinfo = UploadBehavior::_pathinfo($srcFile);
+
+        if (isset($pdfToImage) && preg_match('/(jpg|png)/', $pdfToImage) &&
+            strtolower($pathinfo['extension']) === 'pdf') {
+            $result = $this->_convertPDFtoImage($srcFile, $destFile, $pdfToImage, $dpi, $quality, $CMYKicc, $RGBicc);
+            if ($result) {
+                // change original file to image file
+                $settings['path'] = $destFile;
+                $toWrite['name'] = $destFilename;
+
+                // make pdf again from image
+                $imageSrcFile = $destFile;
+                $PDFdestFile = preg_replace('/\.pdf$/', "_imaged.pdf", $srcFile);
+                $this->_convertImageToPDF($imageSrcFile, $PDFdestFile);
+
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+
+    private function _convertPDFtoImage($srcFile, $destFile, $imageFileType = 'jpg', $dpi = 72, $quality = 75, $CMYKicc, $RGBicc) {
+        try {
+            $im = new Imagick();
+            $im->setResourceLimit(6, 1); // only use 1 thread
+            $im->setResolution($dpi,$dpi);
+            $im->readImage($srcFile);
+            $im->setIteratorIndex(0);
+            $im->setImageFormat($imageFileType);
+            $im->setImageCompressionQuality($quality);
+            $im->setBackgroundColor('white');
+            //$im->thumbnailImage($destW, $destH, $resizeMode);
+            $im = $im->flattenImages();
+            $im->setImageAlphaChannel(imagick::ALPHACHANNEL_DEACTIVATE);
+            $this->_convertImageCMYKtoRGB($im, $CMYKicc, $RGBicc);
+            $im->writeImage($destFile);
+        }
+        catch(ImagickException $e) {
+            return false;
+        }
+
+        return true;
+    }
+
+    private function _convertImageCMYKtoRGB(&$im, $cmykIccFile, $rgbIccFile) {
+        if ($im->getImageColorspace() == Imagick::COLORSPACE_CMYK) {
+            $profiles = $im->getImageProfiles('*', false);
+            // we're only interested if ICC profile(s) exist
+            $has_icc_profile = (array_search('icc', $profiles) !== false);
+            // if it doesnt have a CMYK ICC profile, we add one
+            if ($has_icc_profile === false) {
+                $icc_cmyk = file_get_contents(dirname(__FILE__).'/'.$cmykIccFile);
+                $im->profileImage('icc', $icc_cmyk);
+                unset($icc_cmyk);
+            }
+            // then we add an RGB profile
+            $icc_rgb = file_get_contents(dirname(__FILE__).'/'.$rgbIccFile);
+            $im->profileImage('icc', $icc_rgb);
+            unset($icc_rgb);
+        }
+    }
+
+    private function _convertImageToPDF($srcFile, $destFile) {
+        try {
+            $im = new Imagick();
+            $im->setResourceLimit(6, 1); // only use 1 thread
+            $im->readImage($srcFile);
+            $im->setImageFormat('pdf');
+            $im->writeImage($destFile);
+        }
+        catch(ImagickException $e) {
+            return false;
+        }
+
+        return true;
     }
 }
