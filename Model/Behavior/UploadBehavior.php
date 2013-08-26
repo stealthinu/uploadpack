@@ -464,10 +464,10 @@ class UploadBehavior extends ModelBehavior {
                 $settings['path'] = $destFile;
                 $toWrite['name'] = $destFilename;
 
-                // make pdf again from image
-                $imageSrcFile = $destFile;
-                $PDFdestFile = preg_replace('/\.pdf$/', "_imaged.pdf", $srcFile);
-                $this->_convertImageToPDF($imageSrcFile, $PDFdestFile);
+//                // make pdf again from image
+//                $imageSrcFile = $destFile;
+//                $PDFdestFile = preg_replace('/\.pdf$/', "_imaged.pdf", $srcFile);
+//                $this->_convertImageToPDF($imageSrcFile, $PDFdestFile);
 
                 return true;
             }
